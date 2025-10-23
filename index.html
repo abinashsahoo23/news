@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>The Daily Chronicle</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Times+New+Roman:ital,wght@0,400;0,700;1,400&family=Courier+New:wght@400;700&family=Georgia:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <!-- Newspaper Background -->
+    <div class="newspaper-bg"></div>
+    
+    <div class="newspaper-container">
+        <!-- Newspaper Header -->
+        <header class="newspaper-header">
+            <div class="newspaper-masthead">
+                <div class="masthead-line"></div>
+                <h1 class="newspaper-title">NEWS</h1>
+                <div class="masthead-line"></div>
+                <p class="newspaper-subtitle">EST. 2024 • "All the News That's Fit to Print"</p>
+                <div class="newspaper-date">
+                    <span id="currentDate"></span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Newspaper Controls -->
+        <div class="newspaper-controls">
+            <div class="controls-section">
+                <h3 class="section-headline">SENTIMENT FILTER</h3>
+                <div class="filter-buttons">
+                    <button class="filter-btn active" data-filter="all">
+                        <span class="btn-text">ALL NEWS</span>
+                    </button>
+                    <button class="filter-btn" data-filter="positive">
+                        <span class="btn-text">POSITIVE</span>
+                    </button>
+                    <button class="filter-btn" data-filter="neutral">
+                        <span class="btn-text">NEUTRAL</span>
+                    </button>
+                    <button class="filter-btn" data-filter="negative">
+                        <span class="btn-text">NEGATIVE</span>
+                    </button>
+                </div>
+            </div>
+            
+            <div class="controls-section">
+                <h3 class="section-headline">CATEGORY</h3>
+                <select id="categorySelect" class="newspaper-select">
+                    <option value="technology">TECHNOLOGY</option>
+                    <option value="business">BUSINESS</option>
+                    <option value="science">SCIENCE</option>
+                    <option value="health">HEALTH</option>
+                    <option value="sports">SPORTS</option>
+                    <option value="entertainment">ENTERTAINMENT</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Loading State -->
+        <div class="newspaper-loading" id="loading">
+            <div class="loading-content">
+                <div class="loading-spinner"></div>
+                <p>ANALYZING NEWS SENTIMENT...</p>
+            </div>
+        </div>
+
+        <!-- News Articles -->
+        <div class="newspaper-content" id="newsGrid">
+            <!-- News articles will be dynamically inserted here -->
+        </div>
+
+        <!-- No News State -->
+        <div class="no-news" id="noNews" style="display: none;">
+            <div class="no-news-content">
+                <h3>NO STORIES FOUND</h3>
+                <p>Try adjusting your filter or check back later for new stories.</p>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/compromise@14.10.0/builds/compromise.min.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>

@@ -84,9 +84,11 @@ class NewsDashboard {
             // Try to load from NewsAPI first, fallback to mock data
             if (this.apiKey && this.apiKey !== 'YOUR_NEWS_API_KEY') {
                 newsData = await this.fetchFromNewsAPI();
+                this.showApiStatus('✅ Live news loaded successfully');
             } else {
                 console.log('Using mock data. To use real news, add your NewsAPI key to script.js');
                 newsData = this.getMockNews();
+                this.showApiStatus('📰 Showing sample articles (add API key for live news)');
             }
             
             this.newsData = await this.analyzeSentiment(newsData);
@@ -94,6 +96,8 @@ class NewsDashboard {
             this.renderNews();
         } catch (error) {
             console.error('Error loading news:', error);
+            // Show user-friendly error message
+            this.showError('Unable to fetch latest news. Showing sample articles instead.');
             // Fallback to mock data if API fails
             const mockNews = this.getMockNews();
             this.newsData = await this.analyzeSentiment(mockNews);
@@ -105,22 +109,52 @@ class NewsDashboard {
     }
 
     async fetchFromNewsAPI() {
-        const url = `${this.baseUrl}?category=${this.currentCategory}&apiKey=${this.apiKey}&pageSize=20`;
+        const apiUrl = `${this.baseUrl}?category=${this.currentCategory}&apiKey=${this.apiKey}&pageSize=20`;
         
-        const response = await fetch(url);
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+        // Try multiple CORS proxies for better reliability
+        const proxies = [
+            'https://api.allorigins.win/raw?url=',
+            'https://cors-anywhere.herokuapp.com/',
+            'https://thingproxy.freeboard.io/fetch/'
+        ];
+        
+        for (let i = 0; i < proxies.length; i++) {
+            try {
+                const proxyUrl = proxies[i];
+                const url = proxyUrl + encodeURIComponent(apiUrl);
+                
+                const response = await fetch(url, {
+                    headers: {
+                        'X-Requested-With': 'XMLHttpRequest'
+                    }
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                // Validate the response structure
+                if (!data.articles || !Array.isArray(data.articles)) {
+                    throw new Error('Invalid API response structure');
+                }
+                
+                return data.articles.map(article => ({
+                    title: article.title,
+                    description: article.description || article.content || '',
+                    source: article.source.name,
+                    publishedAt: article.publishedAt,
+                    url: article.url,
+                    urlToImage: article.urlToImage
+                }));
+            } catch (error) {
+                console.warn(`Proxy ${i + 1} failed:`, error.message);
+                if (i === proxies.length - 1) {
+                    throw error; // Re-throw if all proxies failed
+                }
+            }
         }
-        
-        const data = await response.json();
-        return data.articles.map(article => ({
-            title: article.title,
-            description: article.description || article.content || '',
-            source: article.source.name,
-            publishedAt: article.publishedAt,
-            url: article.url,
-            urlToImage: article.urlToImage
-        }));
     }
 
     getMockNews() {
@@ -410,6 +444,44 @@ class NewsDashboard {
                 <h3>${message}</h3>
             </div>
         `;
+    }
+
+    showApiStatus(message) {
+        // Create or update status notification
+        let statusDiv = document.getElementById('apiStatus');
+        if (!statusDiv) {
+            statusDiv = document.createElement('div');
+            statusDiv.id = 'apiStatus';
+            statusDiv.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                background: var(--aged-paper-dark);
+                border: 2px solid var(--border-brown);
+                padding: 10px 15px;
+                border-radius: 4px;
+                font-family: var(--font-mono);
+                font-size: 0.8rem;
+                font-weight: 700;
+                color: var(--ink-black);
+                text-transform: uppercase;
+                letter-spacing: 0.1em;
+                z-index: 1000;
+                box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+                transition: all 0.3s ease;
+            `;
+            document.body.appendChild(statusDiv);
+        }
+        
+        statusDiv.textContent = message;
+        statusDiv.style.opacity = '1';
+        statusDiv.style.transform = 'translateX(0)';
+        
+        // Auto-hide after 3 seconds
+        setTimeout(() => {
+            statusDiv.style.opacity = '0';
+            statusDiv.style.transform = 'translateX(100%)';
+        }, 3000);
     }
 }
 

@@ -5,8 +5,8 @@ class NewsDashboard {
         this.filteredNews = [];
         this.currentFilter = 'all';
         this.currentCategory = 'technology';
-        this.apiKey = '22ce1de51bbb4b8b9197556c684cca9e'; // Replace with your actual API key
-        this.baseUrl = 'https://newsapi.org/v2/top-headlines';
+        this.apiKey = '22ce1de51bbb4b8b9197556c684cca9e'; // Keep for potential future use
+        this.baseUrl = 'https://newsapi.org/v2/top-headlines'; // Keep for potential future use
         
         this.init();
     }
@@ -81,14 +81,14 @@ class NewsDashboard {
         try {
             let newsData;
             
-            // Try to load from NewsAPI first, fallback to mock data
-            if (this.apiKey && this.apiKey !== 'YOUR_NEWS_API_KEY') {
+            // Try to load real news from RSS feeds, fallback to mock data
+            try {
                 newsData = await this.fetchFromNewsAPI();
                 this.showApiStatus('✅ Live news loaded successfully');
-            } else {
-                console.log('Using mock data. To use real news, add your NewsAPI key to script.js');
+            } catch (error) {
+                console.log('RSS feeds failed, using mock data');
                 newsData = this.getMockNews();
-                this.showApiStatus('📰 Showing sample articles (add API key for live news)');
+                this.showApiStatus('📰 Using sample articles (RSS feeds unavailable)');
             }
             
             this.newsData = await this.analyzeSentiment(newsData);
@@ -109,53 +109,144 @@ class NewsDashboard {
     }
 
     async fetchFromNewsAPI() {
-        const apiUrl = `${this.baseUrl}?category=${this.currentCategory}&apiKey=${this.apiKey}&pageSize=20`;
+        // Use RSS feeds that provide good summaries
+        const rssFeeds = {
+            'technology': [
+                'https://feeds.feedburner.com/TechCrunch/',
+                'https://feeds.feedburner.com/oreilly/radar',
+                'https://feeds.feedburner.com/venturebeat/SZYF',
+                'https://feeds.feedburner.com/arstechnica/'
+            ],
+            'business': [
+                'https://feeds.feedburner.com/businessinsider',
+                'https://feeds.feedburner.com/typepad/alleyinsider/silicon_alley_insider',
+                'https://feeds.feedburner.com/venturebeat/SZYF',
+                'https://feeds.feedburner.com/forbes/'
+            ],
+            'science': [
+                'https://feeds.feedburner.com/sciencedaily',
+                'https://feeds.feedburner.com/oreilly/radar',
+                'https://feeds.feedburner.com/venturebeat/SZYF',
+                'https://feeds.feedburner.com/nature/'
+            ],
+            'health': [
+                'https://feeds.feedburner.com/WebMD',
+                'https://feeds.feedburner.com/oreilly/radar',
+                'https://feeds.feedburner.com/venturebeat/SZYF',
+                'https://feeds.feedburner.com/healthline/'
+            ],
+            'sports': [
+                'https://feeds.feedburner.com/espn/espn',
+                'https://feeds.feedburner.com/oreilly/radar',
+                'https://feeds.feedburner.com/venturebeat/SZYF',
+                'https://feeds.feedburner.com/sportsillustrated/'
+            ],
+            'entertainment': [
+                'https://feeds.feedburner.com/oreilly/radar',
+                'https://feeds.feedburner.com/venturebeat/SZYF',
+                'https://feeds.feedburner.com/TechCrunch/',
+                'https://feeds.feedburner.com/entertainment/'
+            ]
+        };
         
-        // Try multiple CORS proxies for better reliability
-        const proxies = [
-            'https://api.allorigins.win/raw?url=',
-            'https://cors-anywhere.herokuapp.com/',
-            'https://thingproxy.freeboard.io/fetch/'
-        ];
+        const feeds = rssFeeds[this.currentCategory] || rssFeeds['technology'];
         
-        for (let i = 0; i < proxies.length; i++) {
+        // Try to fetch from RSS feeds using CORS proxy
+        for (let i = 0; i < feeds.length; i++) {
             try {
-                const proxyUrl = proxies[i];
-                const url = proxyUrl + encodeURIComponent(apiUrl);
-                
-                const response = await fetch(url, {
-                    headers: {
-                        'X-Requested-With': 'XMLHttpRequest'
-                    }
-                });
+                console.log(`Trying RSS feed ${i + 1}...`);
+                const proxyUrl = 'https://api.allorigins.win/raw?url=';
+                const url = proxyUrl + encodeURIComponent(feeds[i]);
+                const response = await fetch(url);
                 
                 if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
+                    throw new Error(`RSS feed ${i + 1} failed: ${response.status}`);
                 }
                 
-                const data = await response.json();
+                const xmlText = await response.text();
+                const articles = this.parseRSSFeed(xmlText);
                 
-                // Validate the response structure
-                if (!data.articles || !Array.isArray(data.articles)) {
-                    throw new Error('Invalid API response structure');
+                if (articles.length > 0) {
+                    console.log(`RSS feed ${i + 1} succeeded with ${articles.length} articles!`);
+                    return articles;
                 }
-                
-                return data.articles.map(article => ({
-                    title: article.title,
-                    description: article.description || article.content || '',
-                    source: article.source.name,
-                    publishedAt: article.publishedAt,
-                    url: article.url,
-                    urlToImage: article.urlToImage
-                }));
             } catch (error) {
-                console.warn(`Proxy ${i + 1} failed:`, error.message);
-                if (i === proxies.length - 1) {
-                    throw error; // Re-throw if all proxies failed
+                console.warn(`RSS feed ${i + 1} failed:`, error.message);
+                if (i === feeds.length - 1) {
+                    throw error; // Re-throw if all feeds failed
                 }
             }
         }
     }
+    
+    parseRSSFeed(xmlText) {
+        try {
+            const parser = new DOMParser();
+            const xmlDoc = parser.parseFromString(xmlText, 'text/xml');
+            const items = xmlDoc.querySelectorAll('item');
+            
+            return Array.from(items).slice(0, 20).map(item => {
+                const title = item.querySelector('title')?.textContent || 'No title';
+                let description = item.querySelector('description')?.textContent || 
+                                item.querySelector('summary')?.textContent || 
+                                item.querySelector('content:encoded')?.textContent ||
+                                'No description available';
+                
+                // Clean up the description
+                description = description.replace(/<[^>]*>/g, ''); // Remove HTML tags
+                description = description.replace(/&[^;]+;/g, ' '); // Remove HTML entities
+                description = description.replace(/\s+/g, ' ').trim(); // Clean up whitespace
+                
+                // If description is too long or looks like full content, create a summary
+                if (description.length > 300 || description.includes('Read more') || description.includes('Continue reading')) {
+                    // Try to find the first sentence or two
+                    const sentences = description.split(/[.!?]+/);
+                    if (sentences.length > 1) {
+                        description = sentences.slice(0, 2).join('.') + '.';
+                    } else {
+                        // Fallback: just take first 150 characters
+                        description = description.substring(0, 150).trim();
+                        if (description.length === 150) {
+                            description += '...';
+                        }
+                    }
+                }
+                
+                // Final length check - ensure it's not too long
+                if (description.length > 200) {
+                    description = description.substring(0, 200).trim();
+                    // Try to end at a complete sentence
+                    const lastPeriod = description.lastIndexOf('.');
+                    if (lastPeriod > 100) {
+                        description = description.substring(0, lastPeriod + 1);
+                    } else {
+                        description += '...';
+                    }
+                }
+                
+                const link = item.querySelector('link')?.textContent || '#';
+                const pubDate = item.querySelector('pubDate')?.textContent || 
+                              item.querySelector('published')?.textContent || 
+                              new Date().toISOString();
+                const source = item.querySelector('source')?.textContent || 
+                             item.querySelector('author')?.textContent || 
+                             'RSS Feed';
+                
+                return {
+                    title: title,
+                    description: description,
+                    source: source,
+                    publishedAt: pubDate,
+                    url: link,
+                    urlToImage: null
+                };
+            });
+        } catch (error) {
+            console.error('Error parsing RSS feed:', error);
+            return [];
+        }
+    }
+
 
     getMockNews() {
         const categories = {

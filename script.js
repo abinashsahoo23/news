@@ -83,6 +83,7 @@ class NewsDashboard {
             
             // Try to load real news from RSS feeds, fallback to mock data
             try {
+                this.updateLoadingText('Fetching latest news...');
                 newsData = await this.fetchFromNewsAPI();
                 this.showApiStatus('✅ Live news loaded successfully');
             } catch (error) {
@@ -91,6 +92,7 @@ class NewsDashboard {
                 this.showApiStatus('📰 Using sample articles (RSS feeds unavailable)');
             }
             
+            this.updateLoadingText('Analyzing sentiment...');
             this.newsData = await this.analyzeSentiment(newsData);
             this.filteredNews = [...this.newsData];
             this.renderNews();
@@ -109,143 +111,80 @@ class NewsDashboard {
     }
 
     async fetchFromNewsAPI() {
-        // Use RSS feeds that provide good summaries
-        const rssFeeds = {
-            'technology': [
-                'https://feeds.feedburner.com/TechCrunch/',
-                'https://feeds.feedburner.com/oreilly/radar',
-                'https://feeds.feedburner.com/venturebeat/SZYF',
-                'https://feeds.feedburner.com/arstechnica/'
-            ],
-            'business': [
-                'https://feeds.feedburner.com/businessinsider',
-                'https://feeds.feedburner.com/typepad/alleyinsider/silicon_alley_insider',
-                'https://feeds.feedburner.com/venturebeat/SZYF',
-                'https://feeds.feedburner.com/forbes/'
-            ],
-            'science': [
-                'https://feeds.feedburner.com/sciencedaily',
-                'https://feeds.feedburner.com/oreilly/radar',
-                'https://feeds.feedburner.com/venturebeat/SZYF',
-                'https://feeds.feedburner.com/nature/'
-            ],
-            'health': [
-                'https://feeds.feedburner.com/WebMD',
-                'https://feeds.feedburner.com/oreilly/radar',
-                'https://feeds.feedburner.com/venturebeat/SZYF',
-                'https://feeds.feedburner.com/healthline/'
-            ],
-            'sports': [
-                'https://feeds.feedburner.com/espn/espn',
-                'https://feeds.feedburner.com/oreilly/radar',
-                'https://feeds.feedburner.com/venturebeat/SZYF',
-                'https://feeds.feedburner.com/sportsillustrated/'
-            ],
-            'entertainment': [
-                'https://feeds.feedburner.com/oreilly/radar',
-                'https://feeds.feedburner.com/venturebeat/SZYF',
-                'https://feeds.feedburner.com/TechCrunch/',
-                'https://feeds.feedburner.com/entertainment/'
-            ]
+        // Use a simple, reliable approach with NewsAPI and CORS proxy
+        const categoryMap = {
+            'technology': 'technology',
+            'business': 'business',
+            'science': 'science', 
+            'health': 'health',
+            'sports': 'sports',
+            'entertainment': 'entertainment'
         };
         
-        const feeds = rssFeeds[this.currentCategory] || rssFeeds['technology'];
+        const category = categoryMap[this.currentCategory] || 'technology';
+        const apiUrl = `${this.baseUrl}?category=${category}&apiKey=${this.apiKey}&pageSize=20&country=us`;
         
-        // Try to fetch from RSS feeds using CORS proxy
-        for (let i = 0; i < feeds.length; i++) {
-            try {
-                console.log(`Trying RSS feed ${i + 1}...`);
-                const proxyUrl = 'https://api.allorigins.win/raw?url=';
-                const url = proxyUrl + encodeURIComponent(feeds[i]);
-                const response = await fetch(url);
-                
-                if (!response.ok) {
-                    throw new Error(`RSS feed ${i + 1} failed: ${response.status}`);
-                }
-                
-                const xmlText = await response.text();
-                const articles = this.parseRSSFeed(xmlText);
-                
-                if (articles.length > 0) {
-                    console.log(`RSS feed ${i + 1} succeeded with ${articles.length} articles!`);
-                    return articles;
-                }
-            } catch (error) {
-                console.warn(`RSS feed ${i + 1} failed:`, error.message);
-                if (i === feeds.length - 1) {
-                    throw error; // Re-throw if all feeds failed
-                }
-            }
+        // Use a reliable CORS proxy
+        const proxyUrl = 'https://api.allorigins.win/raw?url=';
+        const url = proxyUrl + encodeURIComponent(apiUrl);
+        
+        const response = await fetch(url);
+        if (!response.ok) {
+            throw new Error(`NewsAPI failed: ${response.status}`);
         }
+        
+        const data = await response.json();
+        
+        if (!data.articles || !Array.isArray(data.articles)) {
+            throw new Error('Invalid API response structure');
+        }
+        
+        // Filter out articles without proper data and format them
+        return data.articles
+            .filter(article => 
+                article.title && 
+                article.title !== '[Removed]' && 
+                article.description && 
+                article.source?.name
+            )
+            .slice(0, 15)
+            .map(article => ({
+                title: article.title,
+                description: this.createCleanSummary(article.description || article.content || ''),
+                source: article.source.name,
+                publishedAt: article.publishedAt,
+                url: article.url,
+                urlToImage: article.urlToImage
+            }));
     }
     
-    parseRSSFeed(xmlText) {
-        try {
-            const parser = new DOMParser();
-            const xmlDoc = parser.parseFromString(xmlText, 'text/xml');
-            const items = xmlDoc.querySelectorAll('item');
-            
-            return Array.from(items).slice(0, 20).map(item => {
-                const title = item.querySelector('title')?.textContent || 'No title';
-                let description = item.querySelector('description')?.textContent || 
-                                item.querySelector('summary')?.textContent || 
-                                item.querySelector('content:encoded')?.textContent ||
-                                'No description available';
-                
-                // Clean up the description
-                description = description.replace(/<[^>]*>/g, ''); // Remove HTML tags
-                description = description.replace(/&[^;]+;/g, ' '); // Remove HTML entities
-                description = description.replace(/\s+/g, ' ').trim(); // Clean up whitespace
-                
-                // If description is too long or looks like full content, create a summary
-                if (description.length > 300 || description.includes('Read more') || description.includes('Continue reading')) {
-                    // Try to find the first sentence or two
-                    const sentences = description.split(/[.!?]+/);
-                    if (sentences.length > 1) {
-                        description = sentences.slice(0, 2).join('.') + '.';
-                    } else {
-                        // Fallback: just take first 150 characters
-                        description = description.substring(0, 150).trim();
-                        if (description.length === 150) {
-                            description += '...';
-                        }
-                    }
-                }
-                
-                // Final length check - ensure it's not too long
-                if (description.length > 200) {
-                    description = description.substring(0, 200).trim();
-                    // Try to end at a complete sentence
-                    const lastPeriod = description.lastIndexOf('.');
-                    if (lastPeriod > 100) {
-                        description = description.substring(0, lastPeriod + 1);
-                    } else {
-                        description += '...';
-                    }
-                }
-                
-                const link = item.querySelector('link')?.textContent || '#';
-                const pubDate = item.querySelector('pubDate')?.textContent || 
-                              item.querySelector('published')?.textContent || 
-                              new Date().toISOString();
-                const source = item.querySelector('source')?.textContent || 
-                             item.querySelector('author')?.textContent || 
-                             'RSS Feed';
-                
-                return {
-                    title: title,
-                    description: description,
-                    source: source,
-                    publishedAt: pubDate,
-                    url: link,
-                    urlToImage: null
-                };
-            });
-        } catch (error) {
-            console.error('Error parsing RSS feed:', error);
-            return [];
+    createCleanSummary(text) {
+        if (!text) return 'No description available';
+        
+        // Clean up the text
+        let summary = text.replace(/<[^>]*>/g, ''); // Remove HTML tags
+        summary = summary.replace(/&[^;]+;/g, ' '); // Remove HTML entities
+        summary = summary.replace(/\s+/g, ' ').trim(); // Clean whitespace
+        
+        // Remove common clutter
+        summary = summary.replace(/Read more.*$/i, '');
+        summary = summary.replace(/Continue reading.*$/i, '');
+        summary = summary.replace(/View full article.*$/i, '');
+        
+        // Limit to reasonable length
+        if (summary.length > 150) {
+            summary = summary.substring(0, 150).trim();
+            const lastPeriod = summary.lastIndexOf('.');
+            if (lastPeriod > 50) {
+                summary = summary.substring(0, lastPeriod + 1);
+            } else {
+                summary += '...';
+            }
         }
+        
+        return summary;
     }
+    
 
 
     getMockNews() {
@@ -380,64 +319,35 @@ class NewsDashboard {
     }
 
     async analyzeSentiment(newsItems) {
-        // Enhanced sentiment analysis with weighted scoring
-        const positiveWords = {
-            'breakthrough': 3, 'success': 3, 'achieve': 2, 'improve': 2, 'better': 2, 
-            'best': 3, 'excellent': 3, 'amazing': 3, 'wonderful': 3, 'great': 2, 
-            'good': 1, 'positive': 2, 'win': 2, 'victory': 3, 'progress': 2,
-            'innovation': 2, 'revolutionary': 3, 'promising': 2, 'saving': 3, 
-            'successful': 2, 'historic': 2, 'record': 1, 'growth': 1, 'increase': 1,
-            'advance': 2, 'develop': 1, 'create': 1, 'build': 1, 'expand': 1,
-            'surge': 1, 'rise': 1, 'boost': 2, 'enhance': 2, 'optimize': 1
-        };
-        
-        const negativeWords = {
-            'crisis': 3, 'warning': 2, 'problem': 2, 'issue': 2, 'concern': 2, 
-            'threat': 3, 'danger': 3, 'risk': 2, 'failure': 3, 'decline': 2, 
-            'drop': 2, 'fall': 2, 'crash': 3, 'disaster': 3, 'tragedy': 3, 
-            'negative': 2, 'layoffs': 2, 'cuts': 2, 'pressure': 1, 'volatility': 1, 
-            'accelerating': 1, 'severe': 2, 'worse': 2, 'worst': 3, 'terrible': 3,
-            'awful': 3, 'bad': 1, 'poor': 1, 'struggle': 2, 'challenge': 1,
-            'difficult': 1, 'hard': 1, 'tough': 1, 'loss': 2, 'decrease': 1,
-            'reduce': 1, 'cut': 1, 'eliminate': 2, 'remove': 1, 'destroy': 3
-        };
+        // Ultra-fast sentiment analysis
+        const positiveWords = new Set(['success', 'breakthrough', 'win', 'great', 'good', 'best', 'excellent', 'amazing', 'wonderful', 'victory', 'progress', 'innovation', 'promising', 'successful', 'growth', 'advance', 'boost', 'rise', 'surge']);
+        const negativeWords = new Set(['crisis', 'problem', 'failure', 'decline', 'crash', 'disaster', 'tragedy', 'negative', 'layoffs', 'cuts', 'pressure', 'severe', 'worse', 'terrible', 'awful', 'bad', 'struggle', 'loss', 'destroy']);
 
+        // Process all items at once for maximum speed
         return newsItems.map(item => {
-            const text = (item.title + ' ' + item.description).toLowerCase();
+            const text = item.title.toLowerCase();
+            const words = text.split(/\s+/);
             
             let positiveScore = 0;
             let negativeScore = 0;
             
-            // Calculate weighted scores
-            Object.entries(positiveWords).forEach(([word, weight]) => {
-                const regex = new RegExp(`\\b${word}\\b`, 'gi');
-                const matches = text.match(regex);
-                if (matches) {
-                    positiveScore += matches.length * weight;
-                }
-            });
-            
-            Object.entries(negativeWords).forEach(([word, weight]) => {
-                const regex = new RegExp(`\\b${word}\\b`, 'gi');
-                const matches = text.match(regex);
-                if (matches) {
-                    negativeScore += matches.length * weight;
-                }
-            });
+            // Ultra-fast word matching
+            for (const word of words) {
+                const cleanWord = word.replace(/[^\w]/g, '');
+                if (positiveWords.has(cleanWord)) positiveScore++;
+                if (negativeWords.has(cleanWord)) negativeScore++;
+            }
 
-            // Determine sentiment with confidence threshold
-            const confidence = Math.abs(positiveScore - negativeScore);
+            // Quick sentiment determination
             let sentiment = 'neutral';
             let icon = '😐';
             
-            if (confidence >= 2) { // Minimum confidence threshold
-                if (positiveScore > negativeScore) {
-                    sentiment = 'positive';
-                    icon = '😊';
-                } else if (negativeScore > positiveScore) {
-                    sentiment = 'negative';
-                    icon = '😞';
-                }
+            if (positiveScore > negativeScore && positiveScore > 0) {
+                sentiment = 'positive';
+                icon = '😊';
+            } else if (negativeScore > positiveScore && negativeScore > 0) {
+                sentiment = 'negative';
+                icon = '😞';
             }
 
             return {
@@ -446,7 +356,7 @@ class NewsDashboard {
                 sentimentIcon: icon,
                 positiveScore,
                 negativeScore,
-                confidence
+                confidence: Math.abs(positiveScore - negativeScore)
             };
         });
     }
@@ -501,17 +411,31 @@ class NewsDashboard {
     }
 
     formatDate(dateString) {
-        const date = new Date(dateString);
-        const now = new Date();
-        const diffInHours = Math.floor((now - date) / (1000 * 60 * 60));
+        if (!dateString) return 'Unknown time';
         
-        if (diffInHours < 1) {
+        const date = new Date(dateString);
+        if (isNaN(date.getTime())) return 'Unknown time';
+        
+        const now = new Date();
+        const diffInMinutes = Math.floor((now - date) / (1000 * 60));
+        const diffInHours = Math.floor(diffInMinutes / 60);
+        const diffInDays = Math.floor(diffInHours / 24);
+        
+        if (diffInMinutes < 1) {
             return 'Just now';
+        } else if (diffInMinutes < 60) {
+            return `${diffInMinutes}m ago`;
         } else if (diffInHours < 24) {
             return `${diffInHours}h ago`;
-        } else {
-            const diffInDays = Math.floor(diffInHours / 24);
+        } else if (diffInDays < 7) {
             return `${diffInDays}d ago`;
+        } else {
+            // Show actual date for older articles
+            return date.toLocaleDateString('en-US', { 
+                month: 'short', 
+                day: 'numeric',
+                year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined
+            });
         }
     }
 
@@ -524,6 +448,13 @@ class NewsDashboard {
             newsGrid.style.display = 'none';
         } else {
             loading.style.display = 'none';
+        }
+    }
+
+    updateLoadingText(text) {
+        const loadingText = document.querySelector('.loading-content p');
+        if (loadingText) {
+            loadingText.textContent = text;
         }
     }
 
